@@ -1,14 +1,19 @@
 #include <glad/glad.h>
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
 #include <vector>
 
 // Windows-specific for getting current directory
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <unistd.h>
@@ -283,7 +288,8 @@ int main() {
         doorModel = Model::CreateCube();
     }
 
-    std::cout << "=== Models loaded ===\n\n";
+    // Keep any loaded models. They already fall back to cubes if imports fail.
+    std::cout << "=== Models ready (imports or cubes as fallback) ===\n\n";
 
     // ---- Setup Skybox ----
     float skyVertices[] = {
@@ -333,6 +339,20 @@ int main() {
     glm::vec3 doorPos = { 8.5f, 0.0f, 8.5f };
     bool gameWon = false;
 
+    // Compute normalization scales for imported models so they appear at sane sizes
+    auto computeUnitScale = [](const Model& m) -> float {
+        if (m.meshes.empty()) return 1.0f;
+        glm::vec3 bmin, bmax; m.ComputeAABB(bmin, bmax);
+        glm::vec3 size = bmax - bmin;
+        float longest = std::max(size.x, std::max(size.y, size.z));
+        return (longest > 1e-6f) ? (1.0f / longest) : 1.0f;
+    };
+
+    float playerImportScale = computeUnitScale(player.model);
+    float keyImportScale    = computeUnitScale(keyModel);
+    float wallImportScale   = computeUnitScale(wallModel);
+    float doorImportScale   = computeUnitScale(doorModel);
+
     std::cout << "\n=== Game Started! ===\n";
     std::cout << "Controls: WASD to move, ESC to quit\n";
     std::cout << "Objective: Collect 3 keys and reach the exit door!\n\n";
@@ -356,7 +376,8 @@ int main() {
         AABB playerBox = Collision::FromPositionSize(player.position,
             glm::vec3(0.4f, 0.8f, 0.4f));
         for (const auto& wall : walls) {
-            AABB wallBox = Collision::FromPositionSize(wall.position, wall.scale);
+            AABB wallBox = Collision::FromPositionSize(
+                wall.position, (wall.scale * wallImportScale) * 0.5f);
             if (Collision::TestAABB(playerBox, wallBox)) {
                 player.position = prevPos;
                 break;
@@ -366,7 +387,8 @@ int main() {
         // Collision: Player vs Keys
         for (int i = 0; i < 3; ++i) {
             if (!keysCollected[i]) {
-                AABB keyBox = Collision::FromPositionSize(keyPositions[i], glm::vec3(0.3f));
+                AABB keyBox = Collision::FromPositionSize(
+                    keyPositions[i], glm::vec3(0.15f) * keyImportScale * 0.5f);
                 if (Collision::TestAABB(playerBox, keyBox)) {
                     keysCollected[i] = true;
                     player.keysCollected++;
@@ -378,7 +400,8 @@ int main() {
 
         // Collision: Player vs Door
         if (player.hasAllKeys && !gameWon) {
-            AABB doorBox = Collision::FromPositionSize(doorPos, glm::vec3(1.0f, 2.0f, 0.3f));
+            AABB doorBox = Collision::FromPositionSize(
+            doorPos, (glm::vec3(1.2f, 2.5f, 0.3f) * doorImportScale) * 0.5f);
             if (Collision::TestAABB(playerBox, doorBox)) {
                 gameWon = true;
                 std::cout << "\n🎉 YOU WIN! Congratulations! 🎉\n";
@@ -413,7 +436,7 @@ int main() {
         for (const auto& wall : walls) {
             glm::mat4 m(1.0f);
             m = glm::translate(m, wall.position);
-            m = glm::scale(m, wall.scale);
+            m = glm::scale(m, wall.scale * wallImportScale);
             modelShader.setMat4("model", m);
             wallModel.Draw();
         }
@@ -425,7 +448,7 @@ int main() {
                 glm::mat4 m(1.0f);
                 m = glm::translate(m, keyPositions[i]);
                 m = glm::rotate(m, currentFrame * 2.0f, glm::vec3(0, 1, 0));
-                m = glm::scale(m, glm::vec3(0.15f));
+                m = glm::scale(m, glm::vec3(0.15f) * keyImportScale);
                 modelShader.setMat4("model", m);
                 keyModel.Draw();
             }
@@ -437,13 +460,18 @@ int main() {
         modelShader.setVec3("objectColor", doorColor);
         glm::mat4 doorM(1.0f);
         doorM = glm::translate(doorM, doorPos);
-        doorM = glm::scale(doorM, glm::vec3(1.2f, 2.5f, 0.3f));
+        doorM = glm::scale(doorM, glm::vec3(1.2f, 2.5f, 0.3f) * doorImportScale);
         modelShader.setMat4("model", doorM);
         doorModel.Draw();
 
-        // Draw Player
-        modelShader.setInt("useObjectColor", 0);
-        modelShader.setMat4("model", player.GetModelMatrix());
+        // Draw Player as solid color cube
+        modelShader.setInt("useObjectColor", 1);
+        modelShader.setVec3("objectColor", glm::vec3(0.2f, 0.6f, 1.0f));
+        {
+            glm::mat4 pm = player.GetModelMatrix();
+            pm = glm::scale(pm, glm::vec3(playerImportScale));
+            modelShader.setMat4("model", pm);
+        }
         player.model.Draw();
 
         // Draw Skybox

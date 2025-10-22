@@ -4,6 +4,7 @@
 #include <assimp/postprocess.h>
 #include "stb_image.h"
 #include <iostream>
+#include <cfloat>
 
 // --- internal struct ---
 struct TextureData {
@@ -220,4 +221,16 @@ Model Model::CreateCube() {
     cube.meshes.push_back(Mesh(vertices, indices, {}));
     std::cout << "  ✓ Created fallback cube\n";
     return cube;
+}
+
+// --- Compute AABB ---
+void Model::ComputeAABB(glm::vec3& outMin, glm::vec3& outMax) const {
+    outMin = glm::vec3(FLT_MAX);
+    outMax = glm::vec3(-FLT_MAX);
+    for (const auto& mesh : meshes) {
+        for (const auto& v : mesh.vertices) {
+            outMin = glm::min(outMin, v.Position);
+            outMax = glm::max(outMax, v.Position);
+        }
+    }
 }

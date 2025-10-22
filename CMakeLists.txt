@@ -82,6 +82,8 @@ include_directories(
 
 # source files
 file(GLOB SRC "src/*.cpp")
+# Exclude the standalone minimal demo from the main game target
+list(REMOVE_ITEM SRC "${CMAKE_SOURCE_DIR}/src/minimal.cpp")
 add_executable(MazeRunner ${SRC} ${IMGUI_SOURCES})
 
 # link libraries
@@ -115,24 +117,26 @@ message(STATUS "Executable output: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 message(STATUS "========================================")
 
 # =============================================================================
-# OPTIONAL: Copy assets and shaders to build directory (backup method)
-# =============================================================================
-# Uncomment these if working directory setting doesn't work
-
-# Copy shaders folder
+# Copy assets and shaders to build directory and next to the executable
 add_custom_command(TARGET MazeRunner POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/shaders
-    ${CMAKE_BINARY_DIR}/shaders
-    COMMENT "Copying shaders to build directory..."
+            ${CMAKE_SOURCE_DIR}/shaders
+            ${CMAKE_BINARY_DIR}/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets
+            ${CMAKE_BINARY_DIR}/assets
+    COMMENT "Copying assets/shaders to build directory..."
 )
 
-# Copy assets folder
+# Also copy to the runtime folder (e.g., bin/Debug or bin/Release)
 add_custom_command(TARGET MazeRunner POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/assets
-    ${CMAKE_BINARY_DIR}/assets
-    COMMENT "Copying assets to build directory..."
+            ${CMAKE_SOURCE_DIR}/shaders
+            $<TARGET_FILE_DIR:MazeRunner>/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:MazeRunner>/assets
+    COMMENT "Copying assets/shaders next to the executable..."
 )
 
 # =============================================================================
@@ -153,3 +157,18 @@ if(UNIX)
         COMMENT "Creating symbolic link for assets..."
     )
 endif()
+
+# -----------------------------------------------------------------------------
+# Minimal model-free test executable
+# -----------------------------------------------------------------------------
+add_executable(MazeRunnerBasic src/minimal.cpp)
+target_link_libraries(MazeRunnerBasic PRIVATE glfw glad)
+if (WIN32)
+    target_link_libraries(MazeRunnerBasic PRIVATE opengl32)
+else()
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(MazeRunnerBasic PRIVATE OpenGL::GL)
+endif()
+set_target_properties(MazeRunnerBasic PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)

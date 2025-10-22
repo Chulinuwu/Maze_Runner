@@ -13,4 +13,6 @@ public:
     void Draw();
     // helper to create a simple cube if no model found
     static Model CreateCube();
+    // Compute axis-aligned bounding box of all meshes (in model space)
+    void ComputeAABB(glm::vec3& outMin, glm::vec3& outMax) const;
 };
