@@ -1,10 +1,18 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <vector>
+
+// Windows-specific for getting current directory
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -43,26 +51,58 @@ void processInput(GLFWwindow* window) {
 }
 
 // ========================================
-// SKYBOX LOADER
+// PROCEDURAL SKYBOX GENERATOR
 // ========================================
-unsigned int loadCubemap(const std::vector<std::string>& faces) {
+unsigned int createProceduralCubemap(int resolution = 512) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
 
-    int width, height, nrChannels;
-    for (unsigned int i = 0; i < faces.size(); ++i) {
-        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
-        if (data) {
-            GLenum format = nrChannels == 3 ? GL_RGB : GL_RGBA;
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
-                width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            stbi_image_free(data);
+    // สร้างข้อมูลสีสำหรับแต่ละด้าน
+    std::vector<unsigned char> faceData(resolution * resolution * 3);
+
+    // กำหนดสีของแต่ละด้าน (RGB)
+    struct FaceColor {
+        unsigned char r, g, b;
+    };
+
+    FaceColor faceColors[6] = {
+        {135, 206, 235},  // Right  - ฟ้าอ่อน (Sky Blue)
+        {135, 206, 235},  // Left   - ฟ้าอ่อน
+        {120, 180, 255},  // Top    - ฟ้าเข้มขึ้น (เหมือนท้องฟ้าตอนบน)
+        {100, 149, 237},  // Bottom - ฟ้าเข้มกว่า (Cornflower Blue)
+        {135, 206, 235},  // Front  - ฟ้าอ่อน
+        {135, 206, 235}   // Back   - ฟ้าอ่อน
+    };
+
+    for (unsigned int face = 0; face < 6; ++face) {
+        FaceColor baseColor = faceColors[face];
+
+        // สร้าง gradient สำหรับแต่ละด้าน
+        for (int y = 0; y < resolution; ++y) {
+            for (int x = 0; x < resolution; ++x) {
+                int idx = (y * resolution + x) * 3;
+
+                // Gradient จากบนลงล่าง
+                float gradientFactor = 1.0f;
+                if (face == 2) { // Top - ไล่จากฟ้าเข้มไปอ่อน
+                    gradientFactor = 0.8f + 0.2f * (float)y / resolution;
+                }
+                else if (face == 3) { // Bottom - เข้มขึ้น
+                    gradientFactor = 0.7f + 0.3f * (1.0f - (float)y / resolution);
+                }
+                else { // ด้านข้าง - gradient เบาๆ
+                    gradientFactor = 0.9f + 0.1f * (1.0f - (float)y / resolution);
+                }
+
+                faceData[idx + 0] = (unsigned char)(baseColor.r * gradientFactor);
+                faceData[idx + 1] = (unsigned char)(baseColor.g * gradientFactor);
+                faceData[idx + 2] = (unsigned char)(baseColor.b * gradientFactor);
+            }
         }
-        else {
-            std::cerr << "Cubemap load failed: " << faces[i] << std::endl;
-            stbi_image_free(data);
-        }
+
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGB,
+            resolution, resolution, 0, GL_RGB, GL_UNSIGNED_BYTE, faceData.data());
     }
 
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -71,6 +111,7 @@ unsigned int loadCubemap(const std::vector<std::string>& faces) {
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
+    std::cout << "✓ Procedural cubemap created successfully!\n";
     return textureID;
 }
 
@@ -107,6 +148,48 @@ std::vector<Wall> createMaze() {
 // MAIN FUNCTION
 // ========================================
 int main() {
+    // ========================================
+    // === WORKING DIRECTORY DEBUG TEST ===
+    // ========================================
+    std::cout << "\n";
+    std::cout << "╔════════════════════════════════════════╗\n";
+    std::cout << "║   WORKING DIRECTORY DEBUG TEST         ║\n";
+    std::cout << "╚════════════════════════════════════════╝\n";
+
+    // Get current working directory
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    GetCurrentDirectoryA(MAX_PATH, buffer);
+    std::cout << "Current Directory: " << buffer << "\n";
+#else
+    char buffer[1024];
+    getcwd(buffer, sizeof(buffer));
+    std::cout << "Current Directory: " << buffer << "\n";
+#endif
+
+    // Test if files exist
+    std::cout << "\n--- File Existence Test ---\n";
+
+    std::ifstream testShader1("shaders/model.vert");
+    std::ifstream testShader2("shaders/model.frag");
+    std::ifstream testShader3("shaders/skybox.vert");
+    std::ifstream testShader4("shaders/skybox.frag");
+    std::ifstream testModel1("assets/models/Player.fbx");
+    std::ifstream testModel2("assets/models/Key.fbx");
+
+    std::cout << "shaders/model.vert:        " << (testShader1.good() ? "✓ FOUND" : "✗ NOT FOUND") << "\n";
+    std::cout << "shaders/model.frag:        " << (testShader2.good() ? "✓ FOUND" : "✗ NOT FOUND") << "\n";
+    std::cout << "shaders/skybox.vert:       " << (testShader3.good() ? "✓ FOUND" : "✗ NOT FOUND") << "\n";
+    std::cout << "shaders/skybox.frag:       " << (testShader4.good() ? "✓ FOUND" : "✗ NOT FOUND") << "\n";
+    std::cout << "assets/models/Player.fbx:  " << (testModel1.good() ? "✓ FOUND" : "✗ NOT FOUND") << "\n";
+    std::cout << "assets/models/Key.fbx:     " << (testModel2.good() ? "✓ FOUND" : "✗ NOT FOUND") << "\n";
+
+    std::cout << "\n";
+    std::cout << "╔════════════════════════════════════════╗\n";
+    std::cout << "║   END DEBUG TEST - Starting Game...   ║\n";
+    std::cout << "╚════════════════════════════════════════╝\n\n";
+    // ========================================
+
     // ---- GLFW Init ----
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -114,7 +197,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT,
-        "Maze Runner", nullptr, nullptr);
+        "Maze Runner - Procedural Skybox", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -140,16 +223,67 @@ int main() {
     ImGui_ImplOpenGL3_Init("#version 330");
 
     // ---- Load Shaders ----
+    std::cout << "Loading shaders...\n";
     Shader modelShader("shaders/model.vert", "shaders/model.frag");
     Shader skyShader("shaders/skybox.vert", "shaders/skybox.frag");
 
-    // ---- Load Models ----
+    // ---- Load Models with Fallback ----
+    std::cout << "\n=== Loading Models ===\n";
+
     Player player;
+    std::cout << "Loading player model...\n";
     player.LoadModel("assets/models/Player.fbx");
 
-    Model keyModel("assets/models/Key.fbx");
-    Model wallModel("assets/models/Wall.fbx");
-    Model doorModel("assets/models/Door.fbx");
+    std::cout << "Loading game object models...\n";
+    Model keyModel, wallModel, doorModel;
+
+    // Try loading, fallback to cube if fail
+    try {
+        keyModel = Model("assets/models/Key.fbx");
+        if (keyModel.meshes.empty()) {
+            std::cout << "  Key model empty, using cube\n";
+            keyModel = Model::CreateCube();
+        }
+        else {
+            std::cout << "  ✓ Key model loaded\n";
+        }
+    }
+    catch (...) {
+        std::cout << "  Key model failed, using cube\n";
+        keyModel = Model::CreateCube();
+    }
+
+    try {
+        wallModel = Model("assets/models/Wall.fbx");
+        if (wallModel.meshes.empty()) {
+            std::cout << "  Wall model empty, using cube\n";
+            wallModel = Model::CreateCube();
+        }
+        else {
+            std::cout << "  ✓ Wall model loaded\n";
+        }
+    }
+    catch (...) {
+        std::cout << "  Wall model failed, using cube\n";
+        wallModel = Model::CreateCube();
+    }
+
+    try {
+        doorModel = Model("assets/models/Door.fbx");
+        if (doorModel.meshes.empty()) {
+            std::cout << "  Door model empty, using cube\n";
+            doorModel = Model::CreateCube();
+        }
+        else {
+            std::cout << "  ✓ Door model loaded\n";
+        }
+    }
+    catch (...) {
+        std::cout << "  Door model failed, using cube\n";
+        doorModel = Model::CreateCube();
+    }
+
+    std::cout << "=== Models loaded ===\n\n";
 
     // ---- Setup Skybox ----
     float skyVertices[] = {
@@ -177,15 +311,9 @@ int main() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindVertexArray(0);
 
-    std::vector<std::string> faces = {
-        "assets/cubemap/right.png",
-        "assets/cubemap/left.png",
-        "assets/cubemap/top.png",
-        "assets/cubemap/bottom.png",
-        "assets/cubemap/front.png",
-        "assets/cubemap/back.png"
-    };
-    unsigned int cubemapTex = loadCubemap(faces);
+    // สร้าง Procedural Cubemap แทนการโหลดจากไฟล์
+    std::cout << "Generating procedural skybox...\n";
+    unsigned int cubemapTex = createProceduralCubemap(512);
 
     skyShader.use();
     skyShader.setInt("skybox", 0);
@@ -204,6 +332,10 @@ int main() {
 
     glm::vec3 doorPos = { 8.5f, 0.0f, 8.5f };
     bool gameWon = false;
+
+    std::cout << "\n=== Game Started! ===\n";
+    std::cout << "Controls: WASD to move, ESC to quit\n";
+    std::cout << "Objective: Collect 3 keys and reach the exit door!\n\n";
 
     // ---- Game Loop ----
     float lastFrame = 0.0f;
@@ -238,6 +370,8 @@ int main() {
                 if (Collision::TestAABB(playerBox, keyBox)) {
                     keysCollected[i] = true;
                     player.keysCollected++;
+                    std::cout << "Key " << (i + 1) << " collected! ("
+                        << player.keysCollected << "/3)\n";
                 }
             }
         }
@@ -247,6 +381,7 @@ int main() {
             AABB doorBox = Collision::FromPositionSize(doorPos, glm::vec3(1.0f, 2.0f, 0.3f));
             if (Collision::TestAABB(playerBox, doorBox)) {
                 gameWon = true;
+                std::cout << "\n🎉 YOU WIN! Congratulations! 🎉\n";
             }
         }
 
